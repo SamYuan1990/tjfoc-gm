@@ -21,3 +21,7 @@ jobs:
         displayName: golint
       - script: go test -v ./...
         displayName: go test recursive
+  - job: interact
+    dependsOn: test
+    steps:
+      - script: interation.sh
