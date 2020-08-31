@@ -24,4 +24,4 @@ jobs:
   - job: interact
     dependsOn: test
     steps:
-      - script: interation.sh
+      - script: ./interation.sh
