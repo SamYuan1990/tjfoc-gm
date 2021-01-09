@@ -63,6 +63,8 @@ const (
 	bottom29Bits = 0x1FFFFFFF
 )
 
+var zeroP256FieldElement sm2P256FieldElement = [9]uint32{0, 0, 0, 0, 0, 0, 0, 0, 0}
+
 func initP256Sm2() {
 	sm2P256.CurveParams = &elliptic.CurveParams{Name: "SM2-P-256"} // sm2
 	A, _ := new(big.Int).SetString("FFFFFFFEFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF00000000FFFFFFFFFFFFFFFC", 16)
@@ -92,7 +94,6 @@ func (curve sm2P256Curve) Params() *elliptic.CurveParams {
 // y^2 = x^3 + ax + b
 func (curve sm2P256Curve) IsOnCurve(X, Y *big.Int) bool {
 	var a, x, y, y2, x3 sm2P256FieldElement
-
 	x = sm2P256FromBig(x, X)
 	y = sm2P256FromBig(y, Y)
 
@@ -282,8 +283,7 @@ func sm2P256CopyConditional(out, in sm2P256FieldElement, mask uint32) (rs sm2P25
 // sm2P256SelectAffinePoint sets {out_x,out_y} to the index'th entry of table.
 // On entry: index < 16, table[0] must be zero.
 func sm2P256SelectAffinePoint(table []uint32, index uint32) (x, y sm2P256FieldElement) {
-	xOut := [9]uint32{0, 0, 0, 0, 0, 0, 0, 0, 0}
-	yOut := [9]uint32{0, 0, 0, 0, 0, 0, 0, 0, 0}
+	var xOut, yOut sm2P256FieldElement
 	for i := uint32(1); i < 16; i++ {
 		mask := i ^ index
 		mask |= mask >> 2
@@ -299,7 +299,7 @@ func sm2P256SelectAffinePoint(table []uint32, index uint32) (x, y sm2P256FieldEl
 			table = table[1:]
 		}
 	}
-	return sm2P256FieldElement(xOut), sm2P256FieldElement(yOut)
+	return xOut, yOut
 }
 
 // sm2P256SelectJacobianPoint sets {out_x,out_y,out_z} to the index'th entry of
@@ -422,11 +422,20 @@ func sm2P256Scalar(b sm2P256FieldElement, a int) (x sm2P256FieldElement) {
 
 // (x3, y3, z3) = (x1, y1, z1) + (x2, y2, z2)
 func sm2P256PointAdd(x1, y1, z1, x2, y2, z2 sm2P256FieldElement) (a, b, c sm2P256FieldElement) {
-	if sm2P256ToBig(z1).Sign() == 0 {
+	/*
+		-1 if x <  0
+
+		0 if x == 0
+
+		+1 if x >  0
+	*/
+	//if sm2P256ToBig(z1).Sign() == 0 {
+	if sm2p256equals(z1, zeroP256FieldElement) {
 		return x2, y2, z2
 	}
 
-	if sm2P256ToBig(z2).Sign() == 0 {
+	//if sm2P256ToBig(z2).Sign() == 0 {
+	if sm2p256equals(z2, zeroP256FieldElement) {
 		return x1, y1, z1
 	}
 	return sm2P256Cal(x1, y1, z1, x2, y2, z2)
@@ -435,19 +444,9 @@ func sm2P256PointAdd(x1, y1, z1, x2, y2, z2 sm2P256FieldElement) (a, b, c sm2P25
 // (x3, y3, z3) = (x1, y1, z1)- (x2, y2, z2)
 func sm2P256PointSub(x1, y1, z1, x2, y2, z2 sm2P256FieldElement) (a, b, c sm2P256FieldElement) {
 	y := sm2P256ToBig(y2)
-	zero := new(big.Int).SetInt64(0)
-	y.Sub(zero, y)
-	y2 = sm2P256FromBig(y2, y)
-
-	if sm2P256ToBig(z1).Sign() == 0 {
-
-		return x2, y2, z2
-	}
-
-	if sm2P256ToBig(z2).Sign() == 0 {
-		return x1, y1, z1
-	}
-	return sm2P256Cal(x1, y1, z1, x2, y2, z2)
+	//zero := new(big.Int).SetInt64(0)
+	y2 = sm2P256FromBig(y2, y.Neg(y))
+	return sm2P256PointAdd(x1, y1, z1, x2, y2, z2)
 }
 
 func sm2P256Cal(x1, y1, z1, x2, y2, z2 sm2P256FieldElement) (a, b, c sm2P256FieldElement) {
@@ -463,8 +462,15 @@ func sm2P256Cal(x1, y1, z1, x2, y2, z2 sm2P256FieldElement) (a, b, c sm2P256Fiel
 	s1 := sm2P256Mul(y1, z23) // s1 = y1 * z2 ^ 3
 	s2 := sm2P256Mul(y2, z13) // s2 = y2 * z1 ^ 3
 
-	if sm2P256ToBig(u1).Cmp(sm2P256ToBig(u2)) == 0 &&
-		sm2P256ToBig(s1).Cmp(sm2P256ToBig(s2)) == 0 {
+	//
+	// Cmp compares x and y and returns:
+	//
+	//   -1 if x <  y
+	//    0 if x == y
+	//   +1 if x >  y
+	//if sm2P256ToBig(u1).Cmp(sm2P256ToBig(u2)) == 0 &&
+	//	sm2P256ToBig(s1).Cmp(sm2P256ToBig(s2)) == 0 {
+	if sm2p256equals(u1, u2) && sm2p256equals(s1, s2) {
 		x1, y1, z1 = sm2P256PointDouble(x1, y1, z1)
 	}
 
@@ -1067,4 +1073,13 @@ func sm2P256ScalarMult(x, y sm2P256FieldElement, scalar []int8) (x1, y1, z1 sm2P
 		}
 	}
 	return xOut, yOut, zOut
+}
+
+func sm2p256equals(a, b sm2P256FieldElement) bool {
+	for i := 0; i < 8; i++ {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

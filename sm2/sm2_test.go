@@ -141,6 +141,23 @@ func BenchmarkEcdsaVerify(t *testing.B) {
 	}
 }
 
+func TestSm2p256equals(t *testing.T) {
+	var x, y sm2P256FieldElement
+	x = sm2P256FromBig(x, big.NewInt(0))
+	y = sm2P256FromBig(y, big.NewInt(0))
+	rs := sm2p256equals(y, x)
+	if !rs {
+		t.Error("value should be equal")
+	}
+	rs2 := sm2P256ToBig(x).Cmp(sm2P256ToBig(y)) == 0
+	if !rs2 {
+		t.Error("value should be equal")
+	}
+	if rs != rs2 {
+		t.Error("value should be equal")
+	}
+}
+
 func TestKEB2(t *testing.T) {
 	ida := []byte{'1', '2', '3', '4', '5', '6', '7', '8',
 		'1', '2', '3', '4', '5', '6', '7', '8'}
